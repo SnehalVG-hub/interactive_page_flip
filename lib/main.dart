@@ -46,10 +46,13 @@ class LightHomePage extends StatefulWidget {
 class _LightHomePageState extends State<LightHomePage>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _animation;
-  bool _draggingToBlack = true;
-  double _dragStartValue = 0.0;
-  double _dragDistance = 0.0;
+  late Animation<double> _angleAnimation;
+
+  double _rotationAngle = 0.0;
+  double _dragStartAngle = 0.0;
+  double _dragTotalDx = 0.0;
+
+  bool _isDragging = false;
 
   @override
   void initState() {
@@ -60,7 +63,7 @@ class _LightHomePageState extends State<LightHomePage>
       duration: Duration(milliseconds: 300),
     );
 
-    _animation = Tween<double>(begin: 0, end: pi).animate(_controller);
+    _angleAnimation = AlwaysStoppedAnimation<double>(0.0);
   }
 
   @override
@@ -70,36 +73,65 @@ class _LightHomePageState extends State<LightHomePage>
   }
 
   void _handleDragStart(DragStartDetails details) {
-    _dragStartValue = _controller.value;
+    if (_controller.isAnimating) {
+      _rotationAngle = _angleAnimation.value;
+      _controller.stop();
+    }
+
+    _dragStartAngle = _rotationAngle;
+    _dragTotalDx = 0.0;
+    _isDragging = true;
+
+    setState(() {});
   }
 
   void _handleDragUpdate(DragUpdateDetails details) {
+    _dragTotalDx += details.delta.dx;
+
     setState(() {
-      _controller.value = (_controller.value - details.delta.dx / 500).clamp(
-        0.0,
-        1.0,
-      );
+      _rotationAngle = _dragStartAngle - (_dragTotalDx * pi / 500);
     });
   }
 
   void _handleDragEnd(DragEndDetails details) {
-    if (_controller.value >= 0.5) {
-      _controller.forward();
+    final difference = _rotationAngle - _dragStartAngle;
+
+    double targetAngle;
+
+    if (difference.abs() >= pi / 2) {
+      targetAngle = _dragStartAngle + (difference > 0 ? pi : -pi);
     } else {
-      _controller.reverse();
+      targetAngle = _dragStartAngle;
     }
+
+    _animateToAngle(targetAngle);
   }
 
   void _toggleFlip() {
-    if (_controller.status == AnimationStatus.completed) {
-      _controller.reverse();
-    } else if (_controller.status == AnimationStatus.dismissed) {
-      _controller.forward();
-    } else if (_controller.status == AnimationStatus.forward) {
-      _controller.reverse();
-    } else {
-      _controller.forward();
-    }
+    final currentAngle = _controller.isAnimating
+        ? _angleAnimation.value
+        : _rotationAngle;
+
+    final targetAngle = currentAngle + pi;
+
+    _rotationAngle = currentAngle;
+    _animateToAngle(targetAngle);
+  }
+
+  void _animateToAngle(double targetAngle) {
+    _controller.reset();
+
+    _angleAnimation = Tween<double>(
+      begin: _rotationAngle,
+      end: targetAngle,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+
+    _isDragging = false;
+    setState(() {});
+
+    _controller.forward().then((_) {
+      _rotationAngle = targetAngle;
+    });
   }
 
   @override
@@ -116,7 +148,7 @@ class _LightHomePageState extends State<LightHomePage>
           child: Stack(
             children: [
               AnimatedBuilder(
-                animation: _animation,
+                animation: _controller,
                 child: Container(
                   decoration: BoxDecoration(
                     border: Border.all(width: 4, color: Colors.red),
@@ -167,7 +199,9 @@ class _LightHomePageState extends State<LightHomePage>
                   ),
                 ),
                 builder: (context, child) {
-                  final angle = _animation.value;
+                  final angle = _isDragging
+                      ? _rotationAngle
+                      : _angleAnimation.value;
 
                   return Transform(
                     alignment: Alignment.center,
@@ -178,7 +212,7 @@ class _LightHomePageState extends State<LightHomePage>
                       fit: StackFit.expand,
                       children: [
                         // Reverse face: black page
-                        if (angle >= pi / 2)
+                        if (cos(angle) < 0)
                           Transform(
                             alignment: Alignment.center,
                             transform: Matrix4.identity()..rotateY(pi),
@@ -186,7 +220,7 @@ class _LightHomePageState extends State<LightHomePage>
                           ),
 
                         // Front face: your original white page
-                        if (angle < pi / 2) child!,
+                        if (cos(angle) >= 0) child!,
                       ],
                     ),
                   );
